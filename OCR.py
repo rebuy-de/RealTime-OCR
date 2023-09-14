@@ -11,7 +11,7 @@ import numpy
 import pytesseract
 
 import Linguist
-
+import re
 
 def tesseract_location(root):
     """
@@ -207,7 +207,7 @@ class OCR:
                 frame = frame[self.crop_height:(self.height - self.crop_height),
                               self.crop_width:(self.width - self.crop_width)]
 
-                self.boxes = pytesseract.image_to_data(frame, lang=self.language)
+                self.boxes = pytesseract.image_to_data(frame, lang=self.language, config='-c tessedit_char_whitelist=0123456789')
 
     def set_dimensions(self, width, height, crop_width, crop_height):
         """
@@ -294,7 +294,7 @@ def views(mode: int, confidence: int):
     return conf_thresh, color
 
 
-def put_ocr_boxes(boxes, frame, height, crop_width=0, crop_height=0, view_mode=1):
+def put_ocr_boxes(item_ids, boxes, frame, height, crop_width=0, crop_height=0, view_mode=1):
     """
     Draws text bounding boxes at tesseract-specified text location. Also displays compatible (ascii) detected text
     Note: ONLY works with the output from tesseract image_to_data(); image_to_boxes() uses a different output format
@@ -327,8 +327,15 @@ def put_ocr_boxes(boxes, frame, height, crop_width=0, crop_height=0, view_mode=1
                     conf_thresh, color = views(view_mode, int(float(conf)))
 
                     if int(float(conf)) > conf_thresh:
-                        cv2.rectangle(frame, (x, y), (w + x, h + y), color, thickness=1)
+                        cv2.rectangle(frame, (x, y), (w + x, h + y), color, thickness=5)
                         text = text + ' ' + word
+
+                        if len(word) > 0:
+                            temp = re.findall(r'\d{9}', word)
+                            res = list(map(int, temp))
+                            if len(res) > 0:
+                                item_ids.update(res)
+                                print('\n' + str(len(item_ids)))
 
         if text.isascii():  # CV2 is only able to display ascii chars at the moment
             cv2.putText(frame, text, (5, height - 5), cv2.FONT_HERSHEY_DUPLEX, 1, (200, 200, 200))
@@ -408,6 +415,7 @@ def ocr_stream(crop: list[int, int], source: int = 0, view_mode: int = 1, langua
 
     """
     captures = 0  # Number of still image captures during view session
+    item_ids = set()
 
     video_stream = VideoStream(source).start()  # Starts reading the video stream in dedicated thread
     img_wi, img_hi = video_stream.get_video_dimensions()
@@ -449,7 +457,7 @@ def ocr_stream(crop: list[int, int], source: int = 0, view_mode: int = 1, langua
         frame = put_rate(frame, cps1.rate())
         frame = put_language(frame, lang_name)
         frame = put_crop_box(frame, img_wi, img_hi, cropx, cropy)
-        frame, text = put_ocr_boxes(ocr.boxes, frame, img_hi,
+        frame, text = put_ocr_boxes(item_ids, ocr.boxes, frame, img_hi,
                                     crop_width=cropx, crop_height=cropy, view_mode=view_mode)
         # # # # # # # # # # # # # # # # # # # # # # # #
 
@@ -457,6 +465,10 @@ def ocr_stream(crop: list[int, int], source: int = 0, view_mode: int = 1, langua
         if pressed_key == ord('c'):
             print('\n' + text)
             captures = capture_image(frame, captures)
+
+        if pressed_key == ord('p'):
+            print('\n Found ' + str(len(item_ids)) + ' items')
+            print('\n' + str(list(sorted(item_ids))))
 
         cv2.imshow("realtime OCR", frame)
         cps1.increment()  # Incrementation for rate counter
