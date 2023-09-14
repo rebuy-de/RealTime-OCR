@@ -102,6 +102,7 @@ class VideoStream:
         :return: self
         """
         Thread(target=self.get, args=()).start()
+        self.stopped = False
         return self
 
     def get(self):
@@ -313,6 +314,7 @@ def put_ocr_boxes(item_ids, boxes, frame, height, crop_width=0, crop_height=0, v
         raise Exception("A nonexistent view mode was selected. Only modes 1-4 are available")
 
     text = ''  # Initializing a string which will later be appended with the detected text
+    found = False
     if boxes is not None:  # Defends against empty data from tesseract image_to_data
         for i, box in enumerate(boxes.splitlines()):  # Next three lines turn data into a list
             box = box.split()
@@ -327,6 +329,9 @@ def put_ocr_boxes(item_ids, boxes, frame, height, crop_width=0, crop_height=0, v
                     conf_thresh, color = views(view_mode, int(float(conf)))
 
                     if int(float(conf)) > conf_thresh:
+                        if word.strip() == "144500549":
+                            found = True
+                            color = (0, 0, 255)  # Red
                         cv2.rectangle(frame, (x, y), (w + x, h + y), color, thickness=5)
                         text = text + ' ' + word
 
@@ -340,7 +345,7 @@ def put_ocr_boxes(item_ids, boxes, frame, height, crop_width=0, crop_height=0, v
         if text.isascii():  # CV2 is only able to display ascii chars at the moment
             cv2.putText(frame, text, (5, height - 5), cv2.FONT_HERSHEY_DUPLEX, 1, (200, 200, 200))
 
-    return frame, text
+    return frame, text, found
 
 
 def put_crop_box(frame: numpy.ndarray, width: int, height: int, crop_width: int, crop_height: int):
@@ -457,8 +462,13 @@ def ocr_stream(crop: list[int, int], source: int = 0, view_mode: int = 1, langua
         frame = put_rate(frame, cps1.rate())
         frame = put_language(frame, lang_name)
         frame = put_crop_box(frame, img_wi, img_hi, cropx, cropy)
-        frame, text = put_ocr_boxes(item_ids, ocr.boxes, frame, img_hi,
+        frame, text, found = put_ocr_boxes(item_ids, ocr.boxes, frame, img_hi,
                                     crop_width=cropx, crop_height=cropy, view_mode=view_mode)
+
+        if found:
+            print('\n Found item ' + str(text))
+            capture_image(frame, 0)
+            video_stream.stop_process()
         # # # # # # # # # # # # # # # # # # # # # # # #
 
         # Photo capture:
@@ -469,6 +479,9 @@ def ocr_stream(crop: list[int, int], source: int = 0, view_mode: int = 1, langua
         if pressed_key == ord('p'):
             print('\n Found ' + str(len(item_ids)) + ' items')
             print('\n' + str(list(sorted(item_ids))))
+
+        if pressed_key == ord('s'):
+            video_stream.start()
 
         cv2.imshow("realtime OCR", frame)
         cps1.increment()  # Incrementation for rate counter
